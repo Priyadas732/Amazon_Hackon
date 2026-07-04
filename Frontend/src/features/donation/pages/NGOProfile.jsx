@@ -211,12 +211,20 @@ export default function NGOProfile({
                             <div className="h-full bg-green-600 rounded-full" style={{ width: `${camp.progress}%` }}></div>
                           </div>
                         </div>
-                        <button 
-                          onClick={() => onNavigate('donation-flow', { campaignId: camp.id })}
-                          className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-bold text-xs transition-all cursor-pointer shadow-sm text-center"
-                        >
-                          Donate Now
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setViewingCampaign(camp)}
+                            className="px-3 py-2 border border-slate-300 hover:border-slate-400 text-slate-650 hover:text-slate-800 font-bold text-xs rounded-lg transition-colors bg-transparent cursor-pointer"
+                          >
+                            Details
+                          </button>
+                          <button
+                            onClick={() => onNavigate('donation-flow', { campaignId: camp.id })}
+                            className="flex-grow bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg font-bold text-xs transition-all cursor-pointer shadow-sm text-center"
+                          >
+                            Donate Now
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -271,11 +279,52 @@ export default function NGOProfile({
                 <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">HQ Location</span>
                 <span className="material-symbols-outlined text-green-600 text-sm">location_on</span>
               </div>
-              <div className="h-44 relative bg-slate-100">
-                <img className="w-full h-full object-cover" alt="HQ Map" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDz6I1Wl6VTq1ZkubRPUQKcO7h1NyG5c6GnD8UhkKkpiG26u4uinXzoLR_kU2s14B9CzyFQu5u5jgn4gjniR3lhm40qLcM71EIIAiPwEJfJo01vN_DPoj242_JBzPeljsyXpgvIx7_SlCZMHuAjtIgInEcMq5Dno363qum8TLmYO4ZGc9rgybAgUH2blErN4UjR9e2w0tHXb5sY8edyJq6OmjjWaKUNKIVc28-W3t9OlxLHQFHIL_Ex-A" />
+              <div className="h-44 relative bg-slate-100 flex items-center justify-center">
+                <span className="material-symbols-outlined text-green-600/40 text-6xl">location_on</span>
                 <div className="absolute bottom-2 left-2 right-2 bg-white/90 backdrop-blur-sm p-2 rounded border border-slate-200 text-[10px] font-semibold text-slate-700 shadow-sm leading-tight text-center">
-                  Riverside Drive, Westlands, Nairobi, Kenya
+                  {ngoInfo?.address || ngoInfo?.location || 'Address not on file'}
                 </div>
+              </div>
+            </div>
+
+            {/* Founder & Contact Card */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="p-4 flex items-center justify-between border-b border-slate-100 bg-slate-50">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Founder &amp; Contact</span>
+                <span className="material-symbols-outlined text-green-600 text-sm">badge</span>
+              </div>
+              <div className="p-4 space-y-3 text-xs">
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Founder</p>
+                  <p className="font-bold text-slate-800">{ngoInfo?.founder || 'Not on file'}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Contact Person</p>
+                  <p className="font-bold text-slate-800">{ngoInfo?.contactPerson || 'Not on file'}</p>
+                </div>
+                <div className="flex flex-col gap-1 text-slate-600">
+                  {ngoInfo?.contactEmail && (
+                    <span className="flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[14px] text-green-600">mail</span>
+                      {ngoInfo.contactEmail}
+                    </span>
+                  )}
+                  {ngoInfo?.contactPhone && (
+                    <span className="flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[14px] text-green-600">call</span>
+                      {ngoInfo.contactPhone}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400 pt-2 border-t border-slate-100">{ngoInfo?.registrationNumber || 'Registration pending'}</p>
+                {ngoInfo && (
+                  <button
+                    onClick={() => setViewingCampaign(ngoInfo)}
+                    className="w-full mt-1 py-2 border border-green-600 hover:bg-green-50 text-green-700 font-bold text-[11px] rounded-lg transition-colors bg-transparent cursor-pointer"
+                  >
+                    View Full Details
+                  </button>
+                )}
               </div>
             </div>
 
@@ -318,6 +367,15 @@ export default function NGOProfile({
           </nav>
         </div>
       </footer>
+
+      <NGODetailsModal
+        campaign={viewingCampaign}
+        onClose={() => setViewingCampaign(null)}
+        onDonate={viewingCampaign ? () => {
+          onNavigate('donation-flow', { campaignId: viewingCampaign.id });
+          setViewingCampaign(null);
+        } : undefined}
+      />
     </div>
   );
 }
