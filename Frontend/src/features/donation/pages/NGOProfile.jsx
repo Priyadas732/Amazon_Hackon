@@ -109,7 +109,6 @@ export default function NGOProfile({
               <button onClick={() => onNavigate('donation-home')} className="font-bold text-slate-655 hover:text-green-700 bg-transparent border-none">Donate</button>
               <button onClick={() => onNavigate('ngo-profile')} className="font-bold text-green-700 border-b-2 border-green-700 pb-0.5 bg-transparent border-none">NGO Partners</button>
               <button onClick={() => onNavigate('green-credits')} className="font-bold text-slate-655 hover:text-green-700 bg-transparent border-none">Green Credits Wallet</button>
-              <button onClick={() => onNavigate('ngo-dashboard')} className="font-bold text-slate-655 hover:text-green-700 bg-transparent border-none">NGO Dashboard Portal</button>
             </nav>
           </div>
         </div>

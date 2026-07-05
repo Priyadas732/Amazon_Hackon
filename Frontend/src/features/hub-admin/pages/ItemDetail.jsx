@@ -175,7 +175,7 @@ export default function ItemDetail({ activeReturn, onResolve, onBack }) {
               ? 'bg-amber-50 text-amber-700 border-amber-150'
               : 'bg-slate-50 text-slate-700 border-slate-200'
           }`}>
-            {activeReturn.riskTier.toUpperCase()}
+            {(activeReturn.riskTier || 'Baseline').toUpperCase()}
           </span>
         </div>
         <div className="p-6 grid grid-cols-1 md:grid-cols-4 gap-8">

@@ -389,15 +389,18 @@ export default function P2PMarketProductDetail({
                     Detect my location to see distance
                   </button>
                 )}
-                <div className="rounded-xl overflow-hidden h-32 bg-slate-200 relative border border-slate-200">
-                  <img
-                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuAPTyCpDjBarbaeHgIJIc15CYyXqv_-UD8MFpmHlKKrujGj24a2H-D8GSI0Hw3yXed8hE-1t0r8HJyE5SJmUjLaL0AlU2rhrqDuRIHHbp6K_SERo_NK9VUGaYQU1OmDk7U4JkKULvAcjgiNS4nZkQQOAfL8PqcYxDnJYjDRhunjmTBA_j9wOfXzj-5trIMOVPMu3VPrDfqpMxhOOxuxxbsFLCgQAyO60MydEtUD_4E8mzTyYGdOvd-gEA"
-                    className="w-full h-full object-cover opacity-50"
-                    alt="Map location"
+                <div className="rounded-xl overflow-hidden h-40 bg-slate-200 relative border border-slate-200">
+                  <iframe
+                    title="Seller location map"
+                    className="w-full h-full border-0"
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    src={`https://maps.google.com/maps?q=${
+                      product.lat && product.lng
+                        ? `${product.lat},${product.lng}`
+                        : encodeURIComponent(product.location || 'India')
+                    }&z=12&output=embed`}
                   />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="material-symbols-outlined text-orange-600 text-3xl" style={{ fontVariationSettings: "'FILL' 1" }}>location_on</span>
-                  </div>
                 </div>
               </div>
 

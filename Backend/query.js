@@ -67,7 +67,7 @@ const seeded = await prisma.return.createMany({
       subcategory: 'appliance',
       price: 2499.00,
       sku: 'HOME-APP-001',
-      imgUrl: 'https://images.unsplash.com/photo-1594212699903-ec8a3eca50f5?w=200&auto=format&fit=crop',
+      imgUrl: 'https://images.unsplash.com/photo-1594213114663-d94db9b17125?w=200&auto=format&fit=crop',
       status: 'Pending',
       address: '221B Baker St',
       district: 'London Logistics Depot',

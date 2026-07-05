@@ -6,7 +6,7 @@ import { SUBCATEGORY_TAXONOMY } from '../config/subcategoryTaxonomy.js';
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
-const AI1_BASE_URL = process.env.AI1_BASE_URL || 'http://localhost:3000';
+const AI1_BASE_URL = (process.env.AI1_BASE_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 // Backend's Return.category values -> AI1's lowercase grading-category enum.
 // Used only when there's no subcategory (or no taxonomy entry) to look up.
@@ -72,7 +72,7 @@ router.post('/:returnId/submit', upload.fields(UPLOAD_FIELDS), async (req, res) 
     const existing = await prisma.return.findUnique({ where: { id: returnId } });
     if (!existing) return res.status(404).json({ error: 'Return not found' });
 
-    const { conditionAnswers } = req.body;
+    const { conditionAnswers, subcategory } = req.body;
     let parsedAnswers = undefined;
     if (conditionAnswers) {
       try {
@@ -84,6 +84,13 @@ router.post('/:returnId/submit', upload.fields(UPLOAD_FIELDS), async (req, res) 
 
     if (parsedAnswers) {
       existing.conditionAnswers = parsedAnswers;
+    }
+    // The subcategory picked earlier in the wizard never got persisted to
+    // this row until now — without it, mapCategory() falls back to the
+    // generic top-level category, which requires a different (broader) set
+    // of views than what the photo-capture step actually asked the customer for.
+    if (subcategory) {
+      existing.subcategory = subcategory;
     }
 
     const form = new FormData();
@@ -115,6 +122,7 @@ router.post('/:returnId/submit', upload.fields(UPLOAD_FIELDS), async (req, res) 
         aiRequestId: aiBody.requestId,
         aiStatus: aiBody.status,
         ...(parsedAnswers !== undefined && { conditionAnswers: parsedAnswers }),
+        ...(subcategory && { subcategory }),
       },
     });
 

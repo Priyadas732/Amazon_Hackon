@@ -1,11 +1,37 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { apiFetch } from '../../../services/api';
 
+// Tier styling for the personalized return-risk nudge — mirrors the palette
+// used on the hub-admin Account Risk & Trust Score page so the same tier
+// always reads the same way to a viewer, customer-facing or internal.
+const RISK_TIER_STYLES = {
+  Baseline: { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-800', icon: 'text-emerald-700', symbol: 'check_circle' },
+  Elevated: { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-800', icon: 'text-blue-700', symbol: 'info' },
+  'Moderate Risk': { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-900', icon: 'text-amber-700', symbol: 'warning' },
+  'Critical Risk': { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-900', icon: 'text-red-700', symbol: 'error' },
+};
+
+// Return `reason` values in the DB are a mix of snake_case codes and
+// free-form Title Case strings — normalize both into a readable phrase.
+function humanizeReturnReason(reason) {
+  if (!reason) return null;
+  const spaced = reason.includes('_') ? reason.replace(/_/g, ' ') : reason;
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
+}
+
 export default function VirtualTryOn({ onBackToGateway }) {
   const [isOpen, setIsOpen] = useState(true);
   const [tryOnStep, setTryOnStep] = useState(1); // 1 = Upload/Prompt, 2 = Loading, 3 = Result, 4 = Error
   const [selectedMethod, setSelectedMethod] = useState('photo'); // 'photo' or 'model'
   const [cartCount, setCartCount] = useState(0);
+
+  // Personalized return-risk nudge — the customer's own order/return
+  // history, fetched once so "Return rate for this item" can speak to
+  // *their* likelihood of returning it, not a generic item-level stat.
+  const [riskProfile, setRiskProfile] = useState(null);
+  useEffect(() => {
+    apiFetch('/api/profile/risk-score').then(setRiskProfile).catch(() => setRiskProfile(null));
+  }, []);
 
   // Hoodie images by color — the actual garment reference sent to the
   // compositing model, and shown in the gallery.
@@ -17,21 +43,13 @@ export default function VirtualTryOn({ onBackToGateway }) {
 
   const [activeColor, setActiveColor] = useState('charcoal');
   const [mainImage, setMainImage] = useState(productImages.charcoal);
-  const [isPreviewOriginal, setIsPreviewOriginal] = useState(false);
 
   // Try-on generation state
   const [personFile, setPersonFile] = useState(null);
-  const [personPreviewUrl, setPersonPreviewUrl] = useState(null);
   const [modelPhotoUrl, setModelPhotoUrl] = useState(null);
   const [resultImage, setResultImage] = useState(null);
   const [tryOnError, setTryOnError] = useState('');
   const fileInputRef = useRef(null);
-
-  useEffect(() => {
-    return () => {
-      if (personPreviewUrl) URL.revokeObjectURL(personPreviewUrl);
-    };
-  }, [personPreviewUrl]);
 
   // Calls the real AI compositing endpoint. `color` is passed explicitly
   // (rather than read from state) so a color swap can regenerate against
@@ -56,7 +74,6 @@ export default function VirtualTryOn({ onBackToGateway }) {
       const result = await apiFetch('/api/tryon/generate', { method: 'POST', body: form });
       setResultImage(result.image);
       if (result.modelPhotoUrl) setModelPhotoUrl(result.modelPhotoUrl);
-      setIsPreviewOriginal(false);
       setTryOnStep(3);
     } catch (err) {
       setTryOnError(err.message || 'Failed to generate your try-on preview.');
@@ -68,9 +85,7 @@ export default function VirtualTryOn({ onBackToGateway }) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    if (personPreviewUrl) URL.revokeObjectURL(personPreviewUrl);
     setPersonFile(file);
-    setPersonPreviewUrl(URL.createObjectURL(file));
     generate({ file });
   };
 
@@ -351,35 +366,11 @@ export default function VirtualTryOn({ onBackToGateway }) {
                   {tryOnStep === 3 && (
                     <div className="p-5 bg-white space-y-4">
                       <div className="relative w-full aspect-[4/5] bg-gray-100 border border-gray-300 rounded overflow-hidden group">
-                        {/* Try on image rendering — real AI-generated composite, or the
-                            original source photo/model when the toggle is set to Original */}
                         <img
-                          className="w-full h-full object-cover transition-all duration-300"
+                          className="w-full h-full object-contain transition-all duration-300"
                           alt="AI Try-on Preview"
-                          src={isPreviewOriginal
-                            ? (selectedMethod === 'model' ? modelPhotoUrl : personPreviewUrl)
-                            : resultImage
-                          }
+                          src={resultImage}
                         />
-                        {/* Overlay Toggle */}
-                        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center bg-white/90 backdrop-blur rounded-full shadow-lg p-1 border border-gray-300">
-                          <button
-                            onClick={() => setIsPreviewOriginal(false)}
-                            className={`px-4 py-1.5 text-[10px] font-bold rounded-full transition-all cursor-pointer ${
-                              !isPreviewOriginal ? 'bg-[#131921] text-white' : 'text-gray-600 hover:text-gray-900'
-                            }`}
-                          >
-                            Preview
-                          </button>
-                          <button
-                            onClick={() => setIsPreviewOriginal(true)}
-                            className={`px-4 py-1.5 text-[10px] font-bold rounded-full transition-all cursor-pointer ${
-                              isPreviewOriginal ? 'bg-[#131921] text-white' : 'text-gray-600 hover:text-gray-900'
-                            }`}
-                          >
-                            Original
-                          </button>
-                        </div>
                       </div>
 
                       <div className="flex flex-col gap-2 text-left">
@@ -455,16 +446,47 @@ export default function VirtualTryOn({ onBackToGateway }) {
               </div>
               <p className="text-xs text-gray-500 mt-1">Prices include VAT. <span className="text-[#007185] hover:underline cursor-pointer">FREE Returns</span></p>
 
-              {/* RETURN PREVENTION BADGE */}
-              <div className="mt-3 bg-[#e7f4f5] border border-[#d5d9d9] p-3 rounded-md flex items-center gap-3">
-                <span className="material-symbols-outlined text-green-700 text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>
-                  check_circle
-                </span>
-                <div>
-                  <p className="font-bold text-xs text-gray-800">Return rate for this item: 8%</p>
-                  <p className="text-[11px] text-gray-500 leading-tight">This is lower than average for similar items in Men's Hoodies.</p>
-                </div>
-              </div>
+              {/* RETURN PREVENTION BADGE — personalized to the shopper's own
+                  return history once loaded; falls back to the generic
+                  item-level stat if the risk profile hasn't loaded (or has
+                  no order history yet) so the section never looks broken. */}
+              {(() => {
+                const hasHistory = riskProfile && riskProfile.totalOrdersPlaced > 0;
+                const style = hasHistory
+                  ? RISK_TIER_STYLES[riskProfile.tier] || RISK_TIER_STYLES['Moderate Risk']
+                  : { bg: 'bg-[#e7f4f5]', border: 'border-[#d5d9d9]', text: 'text-gray-800', icon: 'text-green-700', symbol: 'check_circle' };
+                const pct = hasHistory ? Math.round(riskProfile.returnRate * 100) : null;
+                const reason = hasHistory ? humanizeReturnReason(riskProfile.topReturnReason) : null;
+                const isElevatedRisk = hasHistory && (riskProfile.tier === 'Moderate Risk' || riskProfile.tier === 'Critical Risk');
+
+                return (
+                  <div className={`mt-3 ${style.bg} border ${style.border} p-3 rounded-md flex items-center gap-3`}>
+                    <span className={`material-symbols-outlined ${style.icon} text-[20px]`} style={{ fontVariationSettings: "'FILL' 1" }}>
+                      {style.symbol}
+                    </span>
+                    {hasHistory ? (
+                      <div>
+                        <p className={`font-bold text-xs ${style.text}`}>
+                          You've returned {riskProfile.totalReturns} of your last {riskProfile.totalOrdersPlaced} orders ({pct}%)
+                        </p>
+                        <p className="text-[11px] text-gray-600 leading-tight">
+                          {reason
+                            ? `Most often because: "${reason}".`
+                            : ''}{' '}
+                          {isElevatedRisk
+                            ? `Returning this too could push your account further into ${riskProfile.tier} — double-check fit with the try-on below first.`
+                            : 'Your return history is healthy — a quick try-on below keeps it that way.'}
+                        </p>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="font-bold text-xs text-gray-800">Return rate for this item: 8%</p>
+                        <p className="text-[11px] text-gray-500 leading-tight">This is lower than average for similar items in Men's Hoodies.</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="space-y-4">

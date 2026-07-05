@@ -127,7 +127,6 @@ export default function DonationFlow({
               <button onClick={() => onNavigate('donation-home')} className="font-bold text-green-700 border-b-2 border-green-700 pb-0.5 bg-transparent cursor-pointer focus:outline-none">Donate</button>
               <button onClick={() => onNavigate('ngo-profile')} className="font-bold text-slate-600 hover:text-green-700 bg-transparent border-none cursor-pointer focus:outline-none">NGO Partners</button>
               <button onClick={() => onNavigate('green-credits')} className="font-bold text-slate-600 hover:text-green-700 bg-transparent border-none cursor-pointer focus:outline-none">Green Credits Wallet</button>
-              <button onClick={() => onNavigate('ngo-dashboard')} className="font-bold text-slate-600 hover:text-green-700 bg-transparent border-none cursor-pointer focus:outline-none">NGO Dashboard Portal</button>
             </nav>
           </div>
         </div>
