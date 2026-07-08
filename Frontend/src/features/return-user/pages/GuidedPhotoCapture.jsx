@@ -205,11 +205,11 @@ export default function GuidedPhotoCapture({ activeReturn, returnState, setRetur
       {/* Progress Stepper */}
       <div className="w-full mb-xl">
         <div className="flex items-center justify-between mb-xs">
-          <span className="font-label-bold text-label-bold text-primary font-bold text-xs uppercase">Step 3 of 6</span>
+          <span className="font-label-bold text-label-bold text-primary font-bold text-xs uppercase">Step 3 of 5</span>
           <span className="font-label-sm text-label-sm text-on-surface-variant text-xs">Photo Evidence</span>
         </div>
         <div className="h-2 w-full bg-surface-variant rounded-full overflow-hidden">
-          <div className="h-full bg-primary-container w-1/2 rounded-full"></div>
+          <div className="h-full bg-primary-container w-[60%] rounded-full"></div>
         </div>
       </div>
 

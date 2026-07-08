@@ -117,9 +117,8 @@ export default function App() {
 
   // Only items whose category has a defined subcategory taxonomy get the
   // extra "Item Details" step — everything else skips straight to photos.
-  const hasSubcategoryStep = Boolean(
-    subcategoryTaxonomy[(activeReturnItem?.category || '').toUpperCase()]?.subcategories?.length
-  );
+  // Disabled: The subcategory selection page has been removed from the returns flow.
+  const hasSubcategoryStep = false;
 
   // Switch Dashboard Helper
   const navigateToDashboard = (dbName) => {
