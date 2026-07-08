@@ -193,16 +193,7 @@ export default function NGODashboard({
         {/* Lower Navigation links */}
         <div className="bg-[#eaeded] border-b border-slate-200 py-1.5 text-slate-700">
           <div className="max-w-[1440px] mx-auto flex items-center gap-6 px-6 overflow-x-auto scrollbar-none">
-            <button 
-              onClick={() => onNavigate('donation-home')}
-              className="flex items-center gap-1 text-slate-800 font-bold hover:text-green-700 text-xs bg-transparent border-none cursor-pointer focus:outline-none"
-            >
-              <span className="material-symbols-outlined text-[16px]">menu</span> All Cares
-            </button>
             <nav className="flex items-center gap-6 whitespace-nowrap text-xs">
-              <button onClick={() => onNavigate('donation-home')} className="font-bold text-slate-655 hover:text-green-700 bg-transparent border-none">Donate</button>
-              <button onClick={() => onNavigate('ngo-profile')} className="font-bold text-slate-655 hover:text-green-700 bg-transparent border-none">NGO Partners</button>
-              <button onClick={() => onNavigate('green-credits')} className="font-bold text-slate-655 hover:text-green-700 bg-transparent border-none">Green Credits Wallet</button>
               <button onClick={() => onNavigate('ngo-dashboard')} className="font-bold text-green-700 border-b-2 border-green-700 pb-0.5 bg-transparent border-none">NGO Dashboard Portal</button>
             </nav>
           </div>

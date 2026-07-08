@@ -82,6 +82,11 @@ export default function GuidedPhotoCapture({ activeReturn, returnState, setRetur
   const [phase, setPhase] = useState('capture'); // 'capture' | 'questions' | 'uploading' | 'analyzing' | 'failed'
   const [statusText, setStatusText] = useState('');
   const [failureReason, setFailureReason] = useState('');
+  // Distinguishes a real AI-driven photo rejection ('quality') from the
+  // grading service being unreachable/slow ('service') — the two look
+  // identical in a bare error string but need very different messaging,
+  // since only one of them means the photos themselves are the problem.
+  const [failureKind, setFailureKind] = useState('quality');
   const [answers, setAnswers] = useState({
     coreFunction: null,
     completeness: null,
@@ -121,17 +126,23 @@ export default function GuidedPhotoCapture({ activeReturn, returnState, setRetur
       const status = await apiFetch(`/api/grading/${activeReturn.id}/status`);
       setStatusText(`${status.status} — ${status.progress}%`);
       if (status.status === 'COMPLETED') return { ok: true };
-      if (status.status === 'FAILED') return { ok: false, failureReason: status.failureReason };
+      if (status.status === 'FAILED') return { ok: false, kind: 'quality', failureReason: status.failureReason };
     }
-    return { ok: false, failureReason: 'Grading is taking longer than expected. Please try again.' };
+    return { ok: false, kind: 'service', failureReason: 'Grading is taking longer than expected. Please try again.' };
   };
 
   const handleSubmit = async (skipAll = false) => {
     setPhase('uploading');
     setFailureReason('');
+    setFailureKind('quality');
     try {
       const form = new FormData();
       requiredViews.forEach((view) => form.append(view, files[view]));
+      // The subcategory chosen back on the Item Details step only lives in
+      // this wizard's in-memory returnState — it was never persisted to the
+      // Return row, so the backend must be told here or it falls back to
+      // the generic (and broader) category and expects views we never asked for.
+      if (returnState.subcategory) form.append('subcategory', returnState.subcategory);
 
       if (!skipAll) {
         const filteredAnswers = {};
@@ -161,6 +172,7 @@ export default function GuidedPhotoCapture({ activeReturn, returnState, setRetur
       const result = await pollStatus();
 
       if (!result.ok) {
+        setFailureKind(result.kind || 'quality');
         setFailureReason(result.failureReason || 'Grading failed. Please try again.');
         setPhase('failed');
         return;
@@ -174,6 +186,7 @@ export default function GuidedPhotoCapture({ activeReturn, returnState, setRetur
       }));
       onNext();
     } catch (err) {
+      setFailureKind('service');
       setFailureReason(err.message || 'Failed to reach the grading service.');
       setPhase('failed');
     }
@@ -211,10 +224,17 @@ export default function GuidedPhotoCapture({ activeReturn, returnState, setRetur
         <>
           {phase === 'failed' && (
             <div className="w-full bg-error-container/20 border border-error/30 rounded-lg p-md mb-lg flex items-start gap-md">
-              <span className="material-symbols-outlined text-error mt-0.5">error</span>
+              <span className="material-symbols-outlined text-error mt-0.5">
+                {failureKind === 'service' ? 'cloud_off' : 'error'}
+              </span>
               <div>
-                <p className="font-label-bold text-label-bold text-error">Photos didn't pass the quality check</p>
+                <p className="font-label-bold text-label-bold text-error">
+                  {failureKind === 'service' ? "Couldn't reach the grading service" : "Photos didn't pass the quality check"}
+                </p>
                 <p className="text-label-sm text-on-surface-variant mt-1">{failureReason}</p>
+                {failureKind === 'service' && (
+                  <p className="text-label-sm text-on-surface-variant mt-1">This isn't a problem with your photos — please try again in a moment.</p>
+                )}
               </div>
             </div>
           )}

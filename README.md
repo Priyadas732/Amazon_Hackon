@@ -1,221 +1,272 @@
-# Amazon Returns & Grading Platform
+# Amazon Returns & AI Vision Grading Platform 🚚🤖
 
-A simulated end-to-end Amazon logistics platform: a customer returns an item, an AI
-vision model grades its condition from real photos, a pickup agent verifies it in the
-field, a fraud/ops console reconciles disagreements and routes inventory, and the item
-flows onward into a peer-to-peer resale marketplace or an NGO donation pipeline. Built
-as three independent services wired together into one working system.
+> **Enterprise-Grade Automated Reverse Logistics, Multi-View AI Condition Assessment, and Circular Economy Routing Platform**
 
----
-
-## 1. Architecture
-
-```
-┌──────────────┐   fetch (JSON + multipart)   ┌──────────────┐   server-to-server   ┌──────────────┐
-│   Frontend   │ ────────────────────────────▶│   Backend    │ ────────────────────▶│     AI1      │
-│  React/Vite  │◀──────────────────────────── │ Express/     │◀──────────────────── │  Fastify/TS  │
-│  :5173       │        JSON responses         │ Prisma       │   JSON (grade proxy)  │  :3000       │
-└──────────────┘                               │ :5000        │                       └──────┬───────┘
-                                                └──────┬───────┘                              │
-                                                       │                                       │
-                                                       ▼                                       ▼
-                                                ┌──────────────┐                       ┌───────────────┐
-                                                │  Postgres    │                       │ Gemini/Gemma  │
-                                                │  (Supabase)  │                       │ + S3 + DynamoDB│
-                                                └──────────────┘                       └───────────────┘
-```
-
-- **Frontend never talks to AI1 directly.** All AI grading requests go
-  `Frontend → Backend → AI1`, so AI1 needs no CORS configuration and Backend is the one
-  authoritative place that persists a grading result back onto a `Return` row.
-- **Backend is the single source of truth** for everything except the live AI grading
-  report itself (which is fetched fresh from AI1 on demand — presigned S3 URLs expire,
-  so they're never cached in Postgres).
-- All three services run as independent local dev processes; there is no shared
-  process manager. Start them in any order — each one tolerates the others being down
-  (Backend's grading routes will 502 if AI1 is unreachable; Frontend will show empty
-  lists / console errors if Backend is unreachable, but won't crash).
+[![Live App](https://img.shields.io/badge/Live%20Demo-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://amazon-hackon-livid.vercel.app/)
+[![Backend API](https://img.shields.io/badge/Backend%20API-Render-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://amazon-grading-backend.onrender.com/health)
+[![AI Microservice](https://img.shields.io/badge/AI%20Service-Render-FF4B4B?style=for-the-badge&logo=fastify&logoColor=white)](https://ai-grading-dlga.onrender.com)
+[![Database](https://img.shields.io/badge/Database-Supabase%20PostgreSQL-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com/)
+[![License](https://img.shields.io/badge/License-MIT-blue.style=for-the-badge)](LICENSE)
 
 ---
 
-## 2. The three services
+## 🌐 Live Production Deployment
 
-### Frontend — `Frontend/`
+- 🌐 **Web Application (Frontend)**: [https://amazon-hackon-livid.vercel.app/](https://amazon-hackon-livid.vercel.app/)
+- ⚙️ **Core Backend API**: [https://amazon-grading-backend.onrender.com](https://amazon-grading-backend.onrender.com/health)
+- 🤖 **AI Vision Microservice**: [https://ai-grading-dlga.onrender.com](https://ai-grading-dlga.onrender.com)
+- 📁 **GitHub Repository**: [https://github.com/Abhay-2309/AI-Grading.git](https://github.com/Abhay-2309/AI-Grading.git)
 
-React 19 + Vite 8 + Tailwind 4. A single-page app (no router — pure client-side state
-machine in `App.jsx`) presenting **seven portals** from one gateway screen:
+---
 
-| Portal | Purpose |
-|---|---|
-| **Customer Portal** | Return an item: pick a reason → upload real photos per required angle → AI grades it live → confirm & get a refund estimate + QR drop-off code. |
-| **Pickup Agent** | Field app: see today's pickups, verify an item against the AI's stage-1 grade, flag disagreements to manual review, end-of-shift accuracy summary. |
-| **Operations Hub (FraudGuard)** | Manual review queue, AI-vs-agent disagreement analysis, account risk scoring, product routing board, agent leaderboard. |
-| **Fitting & Try-On** | Virtual try-on + shoe size finder (return-prevention tools, no backend). |
-| **MarketConnect (P2P Market)** | Peer-to-peer resale marketplace for graded returns — browse, sell, message sellers. |
-| **MarketConnect Cares (Donations)** | Donate returned items to NGO campaigns, earn Green Credits, redeem them for marketplace perks. |
-| **NGO Dashboard** | NGO-side console to post new needs and track fulfillment. |
+## 📌 Executive Summary
 
-`src/services/api.js` is the single data layer — a `useGlobalState()` hook that fetches
-from Backend on mount and exposes read state + mutation functions to every page,
-mirroring the shape of the old (now-deleted) `mockApi.js` so the migration didn't
-require touching most page components.
+Modern e-commerce platforms handle millions of product returns daily, incurring billions in logistics costs, manual processing delays, and return fraud. 
 
-Run: `npm install && npm run dev` → **http://localhost:5173**
-Config: `.env.local` → `VITE_API_BASE_URL=http://localhost:5000`
+The **Amazon Returns & AI Grading Platform** is a production-ready, microservices-based logistics platform designed to automate item condition grading, field verification, fraud mitigation, and circular economy inventory routing.
 
-### Backend — `Backend/`
+When a customer initiates a return, multi-angle physical evidence is analyzed by a **Computer Vision Pipeline (Google Gemini 2.5 Flash / Gemma 4)** combined with a **Deterministic Rules & Band-Edge Voting Engine**. Items are graded (`A+` to `F`), assigned a confidence score, and automatically routed to **Restock**, **Refurbish**, **P2P Resale (MarketConnect)**, or **NGO Donation (MarketConnect Cares)**.
 
-Express + Prisma + PostgreSQL (hosted on Supabase). Owns every piece of app state
-*except* the live AI grading report: returns, P2P listings/chats, NGO campaigns,
-donation history, green credits, the agent leaderboard.
+---
+
+## 🏗️ Enterprise System Architecture
 
 ```
-Backend/
-├── server.js              Express app, CORS, route mounting
-├── db.js                  Prisma client singleton
-├── routes/
-│   ├── returns.js          GET/PUT /api/returns, POST /api/returns/submit
-│   ├── p2p.js              /api/p2p/products, /api/p2p/chats(/:id/messages)
-│   ├── donations.js        /api/donations/campaigns, /donate, /redeem
-│   ├── profile.js          /api/profile, /api/profile/leaderboard
-│   └── grading.js          /api/grading/:returnId/{submit,status,result} — proxies AI1
-└── prisma/
-    ├── schema.prisma        Profile, Return, P2pProduct, P2pChat, P2pMessage,
-    │                        NgoCampaign, DonationHistory, Leaderboard
-    └── seed.js               Seeds all of the above with demo data
+                                 ┌───────────────────────────────────┐
+                                 │       Frontend SPA (Vite/React)   │
+                                 │  https://amazon-hackon.vercel.app │
+                                 └─────────────────┬─────────────────┘
+                                                   │ HTTPS / REST
+                                                   ▼
+                                 ┌───────────────────────────────────┐
+                                 │     Backend API (Express.js)      │
+                                 │ https://amazon-grading.onrender   │
+                                 └────────┬─────────────────┬────────┘
+                                          │                 │
+                  Prisma ORM / PostgreSQL │                 │ Server-to-Server Proxy
+                  (Supabase Session Pool) │                 │ (Multipart / JSON)
+                                          ▼                 ▼
+                              ┌──────────────────┐   ┌──────────────────┐
+                              │ Supabase DB      │   │ AI Microservice  │
+                              │ (PostgreSQL 15)  │   │ (Fastify / TS)   │
+                              └──────────────────┘   └────────┬─────────┘
+                                                              │
+                                            ┌─────────────────┼─────────────────┐
+                                            ▼                 ▼                 ▼
+                                    ┌───────────────┐ ┌───────────────┐ ┌───────────────┐
+                                    │ AWS S3        │ │ AWS DynamoDB  │ │ Google Gemini │
+                                    │ (Photo Bucket)│ │ (State Audit) │ │ (Primary AI)  │
+                                    └───────────────┘ └───────────────┘ └───────┬───────┘
+                                                                                │ Fallback
+                                                                                ▼
+                                                                        ┌───────────────┐
+                                                                        │ Google Gemma  │
+                                                                        │ (Fallback AI) │
+                                                                        └───────────────┘
 ```
 
-Run: `npm install && npx prisma generate && npm run dev` → **http://localhost:5000**
-Config (`.env`):
+### Key Architectural Constraints & Guarantees
+1. **Backend Gateway & Single Authority**: Frontend never connects directly to the AI microservice or AWS resources. Backend acts as the API Gateway, handling authentication, business logic, and database persistence.
+2. **Stateless AI Processing**: The AI microservice (`AI1`) accepts multipart requests, archives original and processed images to S3, updates DynamoDB audit records, runs async vision analysis, and returns presigned image links.
+3. **Resilience & Circuit Breaker**: If primary Vision AI (Gemini) encounters rate limits or quota caps (~20 req/day on free tier), a Circuit Breaker pattern automatically fails over to Gemma without user disruption.
+
+---
+
+## 💻 Tech Stack & Component Ecosystem
+
+| Component | Technology | Version | Purpose |
+|---|---|---|---|
+| **Frontend** | React 19, Vite 8, Tailwind CSS 4 | `19.2.7` / `8.1.1` | Single Page Web Application (7 Portals) |
+| **Backend API** | Node.js, Express.js, Prisma ORM | `20+` / `4.19.2` | Core business logic, data persistence, API proxy |
+| **AI Service** | Fastify, TypeScript, Sharp, Zod | `4.28.0` / `5.7.2` | Image validation, pHash dedup, AI orchestration |
+| **Vision Models**| Google Gemini 2.5 Flash, Gemma 4 | `0.21.0` (SDK) | Multi-view defect detection & rubric assessment |
+| **Database** | PostgreSQL (Supabase) | `15.0` | Primary relational database (Prisma Client) |
+| **Cloud Storage**| AWS S3 & AWS DynamoDB | `@aws-sdk/v3` | Image storage & async grading execution log |
+| **Deployment** | Vercel (Frontend), Render (APIs) | Cloud | Serverless & Containerized Web Services |
+
+---
+
+## 🎯 The 7 Integrated User Portals
+
+The application presents an integrated multi-persona dashboard accessible from a central Gateway:
+
+| Portal | Role & Purpose | Key Technical Features |
+|---|---|---|
+| **👤 Customer Portal** | Initiate returns & upload evidence | Required multi-angle upload, interactive condition survey, real-time AI report, instant refund estimate |
+| **🚚 Pickup Agent App** | Field agent verification app | Daily route management, field grade verification, disagreement flagging, end-of-shift accuracy metric |
+| **🛡️ Operations Hub** | Fraud guard & manual review console | AI-vs-Agent disagreement queue, risk scoring, automated inventory routing, agent leaderboard |
+| **👗 Fitting & Try-On** | Return prevention suite | AI Virtual Try-On, shoe size finder (powered by past purchase history) |
+| **🛒 MarketConnect P2P**| Graded return resale marketplace | Peer-to-peer resale of B/C/D grade returns, seller chat, green credit unlocks |
+| **💚 MarketConnect Cares**| NGO donation pipeline | Direct product donations to verified NGO campaigns, Green Credit rewards |
+| **🏛️ NGO Dashboard** | NGO campaign administration | Post item needs, track campaign progress, receive verified donation shipments |
+
+---
+
+## 🔬 AI Grading & Rules Engine Pipeline
+
+The AI microservice combines deep vision analysis with a deterministic rules engine to prevent AI hallucinations and guarantee grading fairness:
+
+```mermaid
+flowchart LR
+    A["📸 Multi-Angle Photos"] --> B["Intake & pHash Dedup"]
+    B --> C["Upload to S3"]
+    C --> D["Gemini / Gemma Vision Pass"]
+    D --> E["N=3 Majority Voting"]
+    E --> F["Cross-View Dedup"]
+    F --> G["Deterministic Rules Engine"]
+    G --> H["Grade Cap Rules<br/>(Water→F, Crack→D)"]
+    H --> I["Confidence Calculation"]
+    I --> J["Final Report & Presigned URLs"]
 ```
-DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-<n>-<region>.pooler.supabase.com:5432/postgres?schema=public"
+
+### 1. Multi-Angle Verification
+Requires category-specific required angles (e.g. 6-view front/back/left/right/top/bottom for electronics, 2-view front/back for apparel).
+
+### 2. Multi-Pass Majority Voting ($N=3$)
+To prevent single-inference variance, 3 detection passes run concurrently. Defect detections are merged using majority voting logic.
+
+### 3. Band-Edge Boundary Re-Run
+If an item's score lands within $\pm 3$ points of a letter grade boundary (e.g., score of 89 near the 88 boundary between A and B+), an additional voting pass triggers automatically.
+
+### 4. Hard Grade Caps
+Raw model output cannot override strict physical safety & quality rules:
+- ❌ **Water Damage** $\rightarrow$ Forced Grade `F`
+- ❌ **High/Critical Screen Crack or Tampering** $\rightarrow$ Forced Grade `D`
+- ❌ **Customer-Admitted Functional Failure** $\rightarrow$ Forced Grade `C`
+- ❌ **Low Photo Quality ($<50\%$)** $\rightarrow$ Capped at `B` + Flagged for Human Review
+
+---
+
+## 🗄️ Database Entity Schema (Prisma PostgreSQL)
+
+```prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Profile {
+  id                String            @id @default(uuid())
+  email             String            @unique
+  fullName          String?
+  greenCredits      Int               @default(320)
+  treesPlanted      Int               @default(14)
+  causesHelped      Int               @default(8)
+  returns           Return[]
+  p2pProducts       P2pProduct[]
+  donationHistory   DonationHistory[]
+}
+
+model Return {
+  id                    String    @id
+  itemName              String
+  category              String
+  price                 Decimal   @db.Decimal(10, 2)
+  status                String    @default("Pending")
+  userGrade             String?
+  userConfidence        String?
+  defects               Json      @default("[]")
+  agentGrade            String    @default("")
+  routing               String?   // Restock, Refurbish, P2P, Donation
+  aiRequestId           String?
+  aiStatus              String?
+  aiRequiresHumanReview Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+}
+```
+
+---
+
+## ⚡ API Endpoints Reference
+
+### Core Backend (`:5000`)
+- `GET  /health` - Health check endpoint
+- `GET  /api/returns` - List all return records
+- `PUT  /api/returns/:id` - Update return status / agent grade
+- `POST /api/returns/submit` - Finalize customer return
+- `POST /api/grading/:returnId/submit` - Submit photos to AI grading proxy
+- `GET  /api/grading/:returnId/status` - Poll grading execution status
+- `GET  /api/grading/:returnId/result` - Fetch complete AI report & presigned image URLs
+- `GET  /api/p2p/products` - List peer-to-peer resale products
+- `POST /api/donations/donate` - Submit item donation & earn Green Credits
+
+### AI Microservice (`:3000`)
+- `POST /grade` - Multipart intake, validation, S3 storage, async pipeline enqueue
+- `GET  /status/:requestId` - Query current status (`VALIDATED`, `ANALYZING`, `GRADED`, `COMPLETED`, `FAILED`)
+- `GET  /result/:requestId` - Fetch final rubric report + presigned S3 URLs
+
+---
+
+## 🚀 Local Development Setup
+
+### 1. Prerequisites
+- Node.js $\ge 20.0.0$
+- npm $\ge 10.0.0$
+- PostgreSQL instance (or Supabase project)
+
+### 2. Environment Setup
+
+#### `Backend/.env`
+```env
 PORT=5000
-AI1_BASE_URL=http://localhost:3000
+DATABASE_URL="postgresql://postgres:<password>@<host>:5432/postgres?schema=public&connect_timeout=30"
+AI1_BASE_URL="http://localhost:3000"
 ```
 
-**Supabase gotcha:** use the **connection pooler** string (Project Settings → Database
-→ Connection pooling → *Session mode*, port 5432), not the direct `db.<ref>.supabase.co`
-host. The direct host is **IPv6-only** — if your network doesn't have working outbound
-IPv6 (common on many home/mobile networks), every query fails with
-`Can't reach database server`, even though the project is perfectly healthy. The pooler
-host is dual-stack and works over plain IPv4.
+#### `AI1/.env`
+```env
+PORT=3000
+NODE_ENV=development
+AWS_REGION=ap-south-1
+AWS_ACCESS_KEY_ID=your_key
+AWS_SECRET_ACCESS_KEY=your_secret
+S3_BUCKET_NAME=ai-grading-returns
+DYNAMODB_TABLE_NAME=AIGradingRequests
+GEMINI_API_KEY=your_gemini_key
+GEMINI_MODEL=gemini-2.5-flash
+```
 
-There's no auth layer — every request operates as a single hardcoded demo user
-(`Profile.id = '00000000-0000-0000-0000-000000000001'`), matching the single-user
-nature of the whole simulation.
+#### `Frontend/.env.local`
+```env
+VITE_API_BASE_URL=http://localhost:5000
+```
 
-### AI1 — `AI1/`
+### 3. Starting Services
 
-Fastify + TypeScript microservice that actually grades photos. Fully documented in
-[`AI1/README.md`](AI1/README.md) — the short version:
-
-1. `POST /grade` (multipart: photos + category/reason/notes) — validates image
-   quality and duplicate photos *before* spending anything on AI, archives images to
-   S3, kicks off async grading, returns immediately with a `requestId`.
-2. Vision model (**Gemini primary, Gemma fallback**) assesses the photos against an
-   explicit rubric — grade, damage list, confidence, image quality.
-3. A deterministic rules engine sits on top of the raw model output: certain damage
-   types force a grade ceiling (water damage → always F, high-severity crack → always
-   D, etc.), the numeric score comes from a weighted damage table (not the model),
-   and confidence is the *minimum* across every component, not an average.
-4. `GET /status/:id` for polling, `GET /result/:id` for the final report + fresh
-   presigned image URLs.
-
-Run: `npm install && npm run build && node dist/server.js` (or `npm run dev` for
-hot-reload) → **http://localhost:3000**. Needs real AWS (S3 + DynamoDB) and
-Gemini/Gemma API key credentials in `.env` — see `AI1/.env.example`.
-
-**Known constraint:** Gemini's free tier caps out around **20 requests/day**. Once
-exhausted, AI1 automatically falls back to Gemma, which is markedly slower (47–100s+
-per call) and has shown transient server-side 500s/timeouts. Both are handled
-gracefully end-to-end (Backend surfaces a real `FAILED` status with a reason;
-Frontend shows a retry banner) — it's a cost/quota reality, not a bug.
-
----
-
-## 3. Running everything locally
-
-Three terminals, any order:
+Open three terminal windows:
 
 ```bash
-# Terminal 1
-cd AI1 && npm install && npm run dev
+# Terminal 1: AI Microservice
+cd AI1
+npm install
+npm run dev
 
-# Terminal 2
-cd Backend && npm install && npx prisma generate && npm run dev
+# Terminal 2: Core Backend API
+cd Backend
+npm install
+npx prisma generate
+npx prisma db push
+node prisma/seed.js
+npm run dev
 
-# Terminal 3
-cd Frontend && npm install && npm run dev
+# Terminal 3: Frontend Web Application
+cd Frontend
+npm install
+npm run dev
 ```
 
-Then open **http://localhost:5173**. First-time setup also needs, once:
-```bash
-cd Backend && npx prisma db push && node prisma/seed.js
-```
-
-If Backend won't start with `EADDRINUSE: address already in use :::5000`, something
-(possibly a previous `npm run dev` you or a tool left running) is already bound to
-port 5000 — find and stop it (`netstat -ano | grep :5000` on Windows, then
-`taskkill //F //PID <pid>`) rather than picking a different port, since Frontend's
-`VITE_API_BASE_URL` and CORS are both pinned to `:5000`.
+Navigate to **http://localhost:5173** in your web browser.
 
 ---
 
-## 4. Data flow: a return, end to end
+## 🛡️ Security & Reliability Provisions
 
-1. **Customer Portal → Return Reason**: pick why you're returning the item.
-2. **Photo Evidence**: upload real photos for every angle the item's category
-   requires (front+back only for apparel/books; all six — front/back/left/right/
-   top/bottom — for everything else). Submitting calls
-   `POST /api/grading/:returnId/submit` on Backend, which forwards the files +
-   metadata to AI1's `POST /grade`.
-3. Backend stores the returned `requestId` on the `Return` row and the Frontend
-   polls `GET /api/grading/:returnId/status` every ~2.5s.
-4. On `COMPLETED`, Frontend calls `GET /api/grading/:returnId/result`. Backend
-   proxies AI1's full report back to the client **and** simultaneously writes a
-   summary (`userGrade`, `userConfidence`, `defects`) onto the `Return` row, so
-   every other portal reading that same row (Pickup Agent, Ops Hub) sees a
-   consistent grade.
-5. **AI Grading page** renders the real report: grade, condition, damage list with
-   bounding-box markers on the actual uploaded photos, confidence, and an estimated
-   refund derived from the AI's `overallScore` (`max(50%, score/100)` of item price).
-6. **Confirm & Submit** → `POST /api/returns/submit` finalizes the return
-   (status → `Pending`, carries the grade/defects along).
-7. From here the item continues through **Pickup Agent** (field verification, with
-   a real disagreement/conflict path if the agent's assessment differs meaningfully
-   from the AI's) and **Operations Hub** (manual review, risk scoring, routing to
-   restock / refurbish / MarketConnect / donation).
+1. **Environment Isolation**: Production credentials (AWS, Supabase, Gemini API keys) are strictly managed via platform environment variables (Vercel & Render Secrets).
+2. **Automated Reconnection**: Database pooler strings use explicit connection & pool timeouts to handle transient serverless drops.
+3. **Graceful Shutdown**: The Fastify AI service intercepts `SIGTERM` and `SIGINT` signals to allow active grading pipelines to finish before exiting.
 
 ---
 
-## 5. What's real vs. what's deliberately static
+## 📄 License & Ownership
 
-Everything data-driven — every list, form submission, and status change across all
-seven portals — round-trips through Backend to Postgres, or through Backend to AI1
-for grading. Nothing reads from `localStorage` or hardcoded mock arrays anymore.
-
-A few things are intentionally left as static UI chrome rather than backed by real
-models, because there's no real signal for them to represent yet:
-- **Leaderboard** decorative stat cards, accuracy histogram, and calibration alerts
-  (the actual rankings table *is* real, from `GET /api/profile/leaderboard`).
-- **Ops Hub** account-history sparkline, "Estimated Fraud Loss," and similar
-  illustrative panels on the disagreement-analysis screen.
-- **Return-prevention tools** (Virtual Try-On, Shoe Size Finder) — standalone demos,
-  no backend by design.
-
----
-
-## 6. Known issues
-
-- **Supabase pooler transient drops.** Occasionally (observed a couple of times
-  during development, generally after the machine had been idle) Backend's Postgres
-  connection blips for a few seconds with `Can't reach database server` before
-  recovering on its own — Prisma reconnects automatically on the next query. If you
-  see this, it's transient; no action needed unless it persists.
-- **Gemini daily quota.** See §2/AI1 above — expect Gemma fallback (slow, sometimes
-  flaky) once the day's Gemini quota is used up.
-- **`DonationFlow.jsx` confirmation screen** has a pre-existing CSS layout bug (the
-  success card renders in an unexpectedly narrow column). The data behind it is
-  correct; only the layout is off.
-- **Rate limiting / idempotency in AI1 are in-memory** — fine for a single instance,
-  won't survive a restart or multiple instances (documented in `AI1/README.md`).
+Developed for the **Amazon HackOn Logistics & AI Innovation Challenge**. Distributed under the **MIT License**.

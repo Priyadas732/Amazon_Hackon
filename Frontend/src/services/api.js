@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000').replace(/\/$/, '');
 
 async function apiFetch(path, options = {}) {
   const isFormData = options.body instanceof FormData;
@@ -10,7 +10,12 @@ async function apiFetch(path, options = {}) {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error(data?.error || data?.failureReason || `Request failed: ${res.status}`);
+    // Backend's own errors are a plain string (`{ error: 'message' }`), but
+    // AI1's are proxied through verbatim and shape `error` as an object
+    // (`{ error: { code, message, details } }`) — handle both instead of
+    // letting the object one stringify to "[object Object]".
+    const errMessage = typeof data?.error === 'string' ? data.error : data?.error?.message;
+    throw new Error(errMessage || data?.failureReason || `Request failed: ${res.status}`);
   }
   return data;
 }
