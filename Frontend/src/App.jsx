@@ -40,6 +40,13 @@ import DonationFlow from './features/donation/pages/DonationFlow';
 import GreenCreditsWallet from './features/donation/pages/GreenCreditsWallet';
 import NGODashboard from './features/donation/pages/NGODashboard';
 
+// Amazon Renewed Pages
+import RenewedHeader from './features/amazon-renewed/components/RenewedHeader';
+import RenewedHome from './features/amazon-renewed/pages/RenewedHome';
+import RenewedListing from './features/amazon-renewed/pages/RenewedListing';
+import RenewedPDP from './features/amazon-renewed/pages/RenewedPDP';
+import { RENEWED_PRODUCTS } from './features/amazon-renewed/data/products';
+
 export default function App() {
   const {
     returns,
@@ -98,6 +105,11 @@ export default function App() {
   const [donationPage, setDonationPage] = useState('donation-home'); // 'donation-home', 'ngo-profile', 'donation-flow', 'green-credits'
   const [activeCampaignId, setActiveCampaignId] = useState('camp-food');
 
+  // Amazon Renewed subrouting states
+  const [renewedPage, setRenewedPage] = useState('home'); // 'home', 'listing', 'pdp'
+  const [cartCount, setCartCount] = useState(0);
+  const [selectedProduct, setSelectedProduct] = useState(RENEWED_PRODUCTS[0]);
+
   // Active items helper
   const activeReturnItem = returns.find(item => item.id === currentReturnState.itemId);
   const activePickupTask = returns.find(item => item.id === selectedTaskId);
@@ -133,6 +145,18 @@ export default function App() {
       setDonationPage('donation-home');
     } else if (dbName === 'ngo-portal') {
       setDonationPage('ngo-dashboard');
+    } else if (dbName === 'amazon-renewed') {
+      setRenewedPage('home');
+    }
+  };
+
+  const navigateRenewed = (pageName, productId = null) => {
+    setRenewedPage(pageName);
+    if (productId) {
+      const prod = RENEWED_PRODUCTS.find(p => p.id === productId);
+      if (prod) {
+        setSelectedProduct(prod);
+      }
     }
   };
 
@@ -404,13 +428,25 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Card 8: New Module Pending */}
-              <div className="bg-[#fcfdfd] border-2 border-dashed border-slate-200 rounded-xl p-5 flex flex-col items-center justify-center text-center shadow-sm h-full hover:bg-slate-50/50 select-none">
-                <span className="material-symbols-outlined text-slate-300 text-3xl font-black mb-2">add_circle</span>
-                <p className="text-xs font-black text-slate-600">NEW MODULE PENDING</p>
-                <p className="text-[10px] text-slate-400 mt-1 max-w-[140px] mx-auto leading-relaxed">
-                  Next integration phase scheduled for Q4 2026
-                </p>
+              {/* Card 8: Amazon Renewed */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col justify-between hover:shadow-md transition-all hover:-translate-y-0.5 shadow-sm text-left group">
+                <div className="space-y-4">
+                  <div className="h-10 w-10 rounded-xl bg-emerald-100/80 flex items-center justify-center text-emerald-700">
+                    <span className="material-symbols-outlined text-[20px]" style={{ fontVariationSettings: "'FILL' 1" }}>eco</span>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-slate-800 group-hover:text-emerald-700 transition-colors leading-tight">Amazon Renewed</h3>
+                    <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                      Shop high-quality, certified refurbished phones, laptops, smart watches, and other electronics backed by a 6-month warranty.
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => navigateToDashboard('amazon-renewed')}
+                  className="text-[11px] text-emerald-700 font-bold flex items-center gap-1.5 mt-5 bg-transparent border-none cursor-pointer self-start hover:underline"
+                >
+                  Enter Store <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
+                </button>
               </div>
             </div>
 
@@ -1334,6 +1370,40 @@ export default function App() {
                 }
               }}
               onExit={() => navigateToDashboard('gateway')}
+            />
+          )}
+        </div>
+      )}
+
+      {/* portal 8: Amazon Renewed Portal */}
+      {dashboard === 'amazon-renewed' && (
+        <div className="flex-grow flex flex-col min-h-screen">
+          <RenewedHeader 
+            onNavigate={navigateRenewed}
+            onExit={() => navigateToDashboard('gateway')}
+            cartCount={cartCount}
+            userLocation={userLocation}
+          />
+          {renewedPage === 'home' && (
+            <RenewedHome
+              onNavigate={navigateRenewed}
+              onExit={() => navigateToDashboard('gateway')}
+              onAddToCart={() => setCartCount(c => c + 1)}
+            />
+          )}
+          {renewedPage === 'listing' && (
+            <RenewedListing
+              onNavigate={navigateRenewed}
+              onExit={() => navigateToDashboard('gateway')}
+              onAddToCart={() => setCartCount(c => c + 1)}
+            />
+          )}
+          {renewedPage === 'pdp' && (
+            <RenewedPDP
+              onNavigate={navigateRenewed}
+              onExit={() => navigateToDashboard('gateway')}
+              onAddToCart={() => setCartCount(c => c + 1)}
+              selectedProduct={selectedProduct}
             />
           )}
         </div>
