@@ -48,34 +48,54 @@ def initialize_models():
 
     # 2. Load Moondream2 with Compatibility Patches
     print("Loading Moondream2 VLM engine...")
-    import local_moondream.modeling_phi as modeling_phi
-    from transformers.generation import GenerationMixin
+    import os
+    import types
 
-    if GenerationMixin not in modeling_phi.PhiForCausalLM.__bases__:
-        modeling_phi.PhiForCausalLM.__bases__ = (modeling_phi.PhiPreTrainedModel, GenerationMixin)
-        print("Patched PhiForCausalLM with GenerationMixin compatibility.")
+    def custom_query(self):
+        # We define query as a method that returns the custom query dict
+        # to ensure compatibility.
+        pass
 
-    from local_moondream.moondream import Moondream
-
-    def custom_query(self, image, question):
+    def custom_query_impl(self, image, question):
         enc_image = self.encode_image(image)
         ans = self.answer_question(enc_image, question, self.tokenizer)
         return {"answer": ans}
 
-    Moondream.query = custom_query
+    if os.path.exists("./local_moondream") or os.path.exists("local_moondream"):
+        import local_moondream.modeling_phi as modeling_phi
+        from transformers.generation import GenerationMixin
 
-    from local_moondream.configuration_moondream import MoondreamConfig
-    config = MoondreamConfig.from_pretrained("./local_moondream")
+        if GenerationMixin not in modeling_phi.PhiForCausalLM.__bases__:
+            modeling_phi.PhiForCausalLM.__bases__ = (modeling_phi.PhiPreTrainedModel, GenerationMixin)
+            print("Patched PhiForCausalLM with GenerationMixin compatibility.")
 
-    moondream_model = Moondream.from_pretrained(
-        "./local_moondream",
-        config=config,
-        trust_remote_code=True
-    )
-    moondream_tokenizer = AutoTokenizer.from_pretrained("./local_moondream")
-    moondream_model.tokenizer = moondream_tokenizer
+        from local_moondream.moondream import Moondream
+        from local_moondream.configuration_moondream import MoondreamConfig
+        
+        local_path = "./local_moondream" if os.path.exists("./local_moondream") else "local_moondream"
+        config = MoondreamConfig.from_pretrained(local_path)
+
+        moondream_model = Moondream.from_pretrained(
+            local_path,
+            config=config,
+            trust_remote_code=True
+        )
+        moondream_tokenizer = AutoTokenizer.from_pretrained(local_path)
+        moondream_model.tokenizer = moondream_tokenizer
+        Moondream.query = custom_query_impl
+    else:
+        print("Local moondream directory not found. Loading from Hugging Face Hub (vikhyatk/moondream2)...")
+        from transformers import AutoModelForCausalLM
+        moondream_model = AutoModelForCausalLM.from_pretrained(
+            "vikhyatk/moondream2",
+            revision="2024-08-26",
+            trust_remote_code=True
+        )
+        moondream_tokenizer = AutoTokenizer.from_pretrained("vikhyatk/moondream2", revision="2024-08-26")
+        moondream_model.tokenizer = moondream_tokenizer
+        moondream_model.query = types.MethodType(custom_query_impl, moondream_model)
+
     moondream_model = moondream_model.to(device)
-
     print("Moondream2 VLM engine successfully loaded.")
     print("Sequential model loading completed successfully.")
 
