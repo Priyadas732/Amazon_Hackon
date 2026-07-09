@@ -25,9 +25,10 @@ class PhiConfig(PretrainedConfig):
         rope_theta=10000.0,
         rope_scaling=None,
         partial_rotary_factor=0.5,
+        qk_layernorm=False,
         bos_token_id=1,
         eos_token_id=2,
-        pad_token_id=2,  # Always set pad_token_id — prevents AttributeError on newer transformers
+        pad_token_id=2,  # Always set pad_token_id to prevent AttributeError on newer transformers
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -53,6 +54,8 @@ class PhiConfig(PretrainedConfig):
         # instead of None — treat that as "no scaling" (standard RoPE).
         self.rope_scaling = self._normalize_rope_scaling(rope_scaling)
         self.partial_rotary_factor = partial_rotary_factor
+        self.qk_layernorm = qk_layernorm
+        self._rope_scaling_validation()
 
         super().__init__(
             bos_token_id=bos_token_id,
@@ -75,6 +78,7 @@ class PhiConfig(PretrainedConfig):
                 return None
         return rope_scaling
 
+    # Copied from transformers.models.llama.configuration_llama.LlamaConfig._rope_scaling_validation
     def _rope_scaling_validation(self):
         """Validate rope_scaling — relaxed to accept new transformers formats."""
         if self.rope_scaling is None:

@@ -312,26 +312,15 @@ class PhiAttention(nn.Module):
         self._init_rope()
 
     def _init_rope(self):
-        # Support both old transformers ("type" key) and new transformers
-        # ("rope_type" key). Treat "default" / missing type as standard RoPE.
-        rope_scaling = self.config.rope_scaling
-        if rope_scaling is None:
-            use_standard = True
-        else:
-            scaling_type = (
-                rope_scaling.get("type")
-                or rope_scaling.get("rope_type", "default")
-            )
-            use_standard = scaling_type in ("default", None, "")
-
-        if use_standard:
+        if self.config.rope_scaling is None:
             self.rotary_emb = PhiRotaryEmbedding(
                 int(self.partial_rotary_factor * self.head_dim),
                 max_position_embeddings=self.max_position_embeddings,
                 base=self.rope_theta,
             )
         else:
-            scaling_factor = rope_scaling.get("factor", 1.0)
+            scaling_type = self.config.rope_scaling["type"]
+            scaling_factor = self.config.rope_scaling["factor"]
             if scaling_type == "linear":
                 self.rotary_emb = PhiLinearScalingRotaryEmbedding(
                     int(self.partial_rotary_factor * self.head_dim),
@@ -347,12 +336,7 @@ class PhiAttention(nn.Module):
                     base=self.rope_theta,
                 )
             else:
-                # Unknown type — fall back to standard RoPE
-                self.rotary_emb = PhiRotaryEmbedding(
-                    int(self.partial_rotary_factor * self.head_dim),
-                    max_position_embeddings=self.max_position_embeddings,
-                    base=self.rope_theta,
-                )
+                raise ValueError(f"Unknown RoPE scaling type {scaling_type}")
 
     def forward(
         self,
