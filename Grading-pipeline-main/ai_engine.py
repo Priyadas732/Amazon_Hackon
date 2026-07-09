@@ -73,76 +73,99 @@ def initialize_models():
     print("Loading Moondream2 VLM engine...")
     import os
     import types
+    import sys
 
-    def custom_query(self):
-        # We define query as a method that returns the custom query dict
-        # to ensure compatibility.
-        pass
+    # Always use our local architecture source (moondream_src) to avoid
+    # downloading remote architecture code that may be incompatible with the
+    # installed transformers version.
+    src_dir = os.path.dirname(os.path.abspath(__file__))
+    moondream_src_path = os.path.join(src_dir, "moondream_src")
+    if moondream_src_path not in sys.path:
+        sys.path.insert(0, src_dir)
+
+    from moondream_src.moondream import Moondream
+    from moondream_src.configuration_moondream import MoondreamConfig, PhiConfig
+    import moondream_src.modeling_phi as _modeling_phi
+    from transformers.generation import GenerationMixin
+
+    # Patch GenerationMixin into PhiForCausalLM for transformers >= 4.50 compat
+    if GenerationMixin not in _modeling_phi.PhiForCausalLM.__bases__:
+        _modeling_phi.PhiForCausalLM.__bases__ = (
+            _modeling_phi.PhiPreTrainedModel,
+            GenerationMixin,
+        )
+        print("Patched PhiForCausalLM with GenerationMixin.")
 
     def custom_query_impl(self, image, question):
         enc_image = self.encode_image(image)
         ans = self.answer_question(enc_image, question, self.tokenizer)
         return {"answer": ans}
 
-    if os.path.exists("./local_moondream") or os.path.exists("local_moondream"):
-        import local_moondream.modeling_phi as modeling_phi
-        from transformers.generation import GenerationMixin
+    # ── Determine where to load weights from ──────────────────────────────────
+    local_weights = None
+    for candidate in ("./local_moondream", "local_moondream"):
+        if os.path.exists(os.path.join(candidate, "model.safetensors")):
+            local_weights = candidate
+            break
 
-        if GenerationMixin not in modeling_phi.PhiForCausalLM.__bases__:
-            modeling_phi.PhiForCausalLM.__bases__ = (modeling_phi.PhiPreTrainedModel, GenerationMixin)
-            print("Patched PhiForCausalLM with GenerationMixin compatibility.")
-
-        from local_moondream.moondream import Moondream
-        from local_moondream.configuration_moondream import MoondreamConfig
-        
-        local_path = "./local_moondream" if os.path.exists("./local_moondream") else "local_moondream"
-        config = MoondreamConfig.from_pretrained(local_path)
-        if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
-            config.pad_token_id = config.eos_token_id
-        if hasattr(config, "text_config"):
-            if not hasattr(config.text_config, "pad_token_id") or config.text_config.pad_token_id is None:
-                config.text_config.pad_token_id = config.eos_token_id
-            if hasattr(config.text_config, "rope_scaling") and config.text_config.rope_scaling is not None:
-                # Force rope_scaling to dict format containing 'type' to prevent KeyError
-                if not isinstance(config.text_config.rope_scaling, dict):
-                    r_scaling = config.text_config.rope_scaling
-                    rope_type = getattr(r_scaling, "rope_type", getattr(r_scaling, "type", "linear"))
-                    rope_factor = getattr(r_scaling, "factor", 2.0)
-                    config.text_config.rope_scaling = {
-                        "type": rope_type,
-                        "rope_type": rope_type,
-                        "factor": rope_factor
-                    }
-                else:
-                    rope_type = config.text_config.rope_scaling.get("rope_type") or config.text_config.rope_scaling.get("type", "linear")
-                    config.text_config.rope_scaling["type"] = rope_type
-                    config.text_config.rope_scaling["rope_type"] = rope_type
+    if local_weights:
+        print(f"Loading Moondream2 weights from local path: {local_weights}")
+        # Build a clean PhiConfig with pad_token_id pre-set
+        phi_cfg = PhiConfig(pad_token_id=2)
+        config = MoondreamConfig(text_config=phi_cfg.to_dict())
+        config.pad_token_id = 2
 
         moondream_model = Moondream.from_pretrained(
-            local_path,
+            local_weights,
             config=config,
-            trust_remote_code=True
         )
-        moondream_tokenizer = AutoTokenizer.from_pretrained(local_path)
-        moondream_model.tokenizer = moondream_tokenizer
-        Moondream.query = custom_query_impl
     else:
-        print("Local moondream directory not found. Loading from Hugging Face Hub (vikhyatk/moondream2)...")
-        from transformers import AutoModelForCausalLM
+        print("Loading Moondream2 weights from Hugging Face Hub (vikhyatk/moondream2)...")
+        # Download weights only — do NOT use trust_remote_code (avoids broken remote arch)
+        from huggingface_hub import snapshot_download
 
-        moondream_model = AutoModelForCausalLM.from_pretrained(
-            "vikhyatk/moondream2",
+        weights_dir = snapshot_download(
+            repo_id="vikhyatk/moondream2",
             revision="2024-08-26",
-            trust_remote_code=True,
-            torch_dtype=torch.float32,  # CPU-safe dtype
+            ignore_patterns=["*.gguf", "*.md", "*.py", "*.json"],  # weights only
+            local_dir="/tmp/moondream2_weights",
         )
-        moondream_tokenizer = AutoTokenizer.from_pretrained("vikhyatk/moondream2", revision="2024-08-26")
-        moondream_model.tokenizer = moondream_tokenizer
-        moondream_model.query = types.MethodType(custom_query_impl, moondream_model)
+        # Also grab the tokenizer files we need
+        from huggingface_hub import hf_hub_download
+        import shutil
 
-    moondream_model = moondream_model.to("cpu")
-    print("Moondream2 VLM engine successfully loaded on CPU.")
-    print("Sequential model loading completed successfully.")
+        tokenizer_files = [
+            "tokenizer.json", "tokenizer_config.json", "vocab.json",
+            "merges.txt", "special_tokens_map.json", "added_tokens.json",
+            "generation_config.json",
+        ]
+        for fname in tokenizer_files:
+            try:
+                src = hf_hub_download(
+                    repo_id="vikhyatk/moondream2",
+                    filename=fname,
+                    revision="2024-08-26",
+                )
+                shutil.copy(src, os.path.join(weights_dir, fname))
+            except Exception:
+                pass
+
+        # Build a clean config with pad_token_id pre-set
+        phi_cfg = PhiConfig(pad_token_id=2)
+        config = MoondreamConfig(text_config=phi_cfg.to_dict())
+        config.pad_token_id = 2
+
+        moondream_model = Moondream.from_pretrained(
+            weights_dir,
+            config=config,
+        )
+
+    moondream_tokenizer = AutoTokenizer.from_pretrained(
+        local_weights if local_weights else "/tmp/moondream2_weights"
+    )
+    moondream_model.tokenizer = moondream_tokenizer
+    Moondream.query = custom_query_impl
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
