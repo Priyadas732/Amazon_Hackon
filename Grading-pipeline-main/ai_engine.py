@@ -97,6 +97,8 @@ def initialize_models():
         
         local_path = "./local_moondream" if os.path.exists("./local_moondream") else "local_moondream"
         config = MoondreamConfig.from_pretrained(local_path)
+        if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
+            config.pad_token_id = config.eos_token_id
 
         moondream_model = Moondream.from_pretrained(
             local_path,
@@ -108,10 +110,21 @@ def initialize_models():
         Moondream.query = custom_query_impl
     else:
         print("Local moondream directory not found. Loading from Hugging Face Hub (vikhyatk/moondream2)...")
-        from transformers import AutoModelForCausalLM
+        from transformers import AutoModelForCausalLM, AutoConfig
+        
+        # Load config and assign pad_token_id to prevent AttributeError in newer transformers versions
+        config = AutoConfig.from_pretrained(
+            "vikhyatk/moondream2",
+            revision="2024-08-26",
+            trust_remote_code=True
+        )
+        if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
+            config.pad_token_id = getattr(config, "eos_token_id", 50256)
+
         moondream_model = AutoModelForCausalLM.from_pretrained(
             "vikhyatk/moondream2",
             revision="2024-08-26",
+            config=config,
             trust_remote_code=True
         )
         moondream_tokenizer = AutoTokenizer.from_pretrained("vikhyatk/moondream2", revision="2024-08-26")
