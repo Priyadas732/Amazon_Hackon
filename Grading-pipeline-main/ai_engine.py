@@ -128,40 +128,13 @@ def initialize_models():
         Moondream.query = custom_query_impl
     else:
         print("Local moondream directory not found. Loading from Hugging Face Hub (vikhyatk/moondream2)...")
-        from transformers import AutoModelForCausalLM, AutoConfig
-        
-        # Load config and assign pad_token_id to prevent AttributeError in newer transformers versions
-        config = AutoConfig.from_pretrained(
-            "vikhyatk/moondream2",
-            revision="2024-08-26",
-            trust_remote_code=True
-        )
-        if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
-            config.pad_token_id = getattr(config, "eos_token_id", 50256)
-        if hasattr(config, "text_config"):
-            if not hasattr(config.text_config, "pad_token_id") or config.text_config.pad_token_id is None:
-                config.text_config.pad_token_id = getattr(config, "eos_token_id", 50256)
-            if hasattr(config.text_config, "rope_scaling") and config.text_config.rope_scaling is not None:
-                # Force rope_scaling to dict format containing 'type' to prevent KeyError
-                if not isinstance(config.text_config.rope_scaling, dict):
-                    r_scaling = config.text_config.rope_scaling
-                    rope_type = getattr(r_scaling, "rope_type", getattr(r_scaling, "type", "linear"))
-                    rope_factor = getattr(r_scaling, "factor", 2.0)
-                    config.text_config.rope_scaling = {
-                        "type": rope_type,
-                        "rope_type": rope_type,
-                        "factor": rope_factor
-                    }
-                else:
-                    rope_type = config.text_config.rope_scaling.get("rope_type") or config.text_config.rope_scaling.get("type", "linear")
-                    config.text_config.rope_scaling["type"] = rope_type
-                    config.text_config.rope_scaling["rope_type"] = rope_type
+        from transformers import AutoModelForCausalLM
 
         moondream_model = AutoModelForCausalLM.from_pretrained(
             "vikhyatk/moondream2",
             revision="2024-08-26",
-            config=config,
-            trust_remote_code=True
+            trust_remote_code=True,
+            torch_dtype=torch.float32,  # CPU-safe dtype
         )
         moondream_tokenizer = AutoTokenizer.from_pretrained("vikhyatk/moondream2", revision="2024-08-26")
         moondream_model.tokenizer = moondream_tokenizer

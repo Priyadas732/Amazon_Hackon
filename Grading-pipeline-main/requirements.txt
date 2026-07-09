@@ -16,7 +16,7 @@ pydantic
 python-multipart
 
 # Hugging Face & Transformer Models
-transformers
+transformers==4.44.2
 accelerate
 einops
 huggingface-hub
