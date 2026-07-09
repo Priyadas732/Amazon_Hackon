@@ -87,42 +87,89 @@ export class PythonGrader implements VisionGrader {
   constructor(private readonly engineUrl = config.PYTHON_AI_ENGINE_URL) {}
 
   async detectSingleView(input: SingleViewDetectionInput): Promise<RawModelResponse> {
-    const url = `${this.engineUrl.replace(/\/$/, '')}/api/v1/evaluate/disposition`;
+    const cleanEngineUrl = this.engineUrl.replace(/\/$/, '');
+    const isHuggingFace = cleanEngineUrl.includes('hf.space') || cleanEngineUrl.includes('huggingface.co');
 
-    // Construct multipart form data dynamically
-    const formData = new FormData();
-    formData.append('source', 'sell');
-    formData.append('claimed_category', input.category);
-    formData.append('gatekeeper_answers', JSON.stringify({})); // Empty survey fallback
-
-    // Append image buffer as a Blob
-    formData.append(
-      'image',
-      new Blob([input.image.buffer], { type: input.image.mimetype }),
-      `image_${input.image.view}.jpg`
-    );
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        body: formData,
-        signal: AbortSignal.timeout(config.MODEL_TIMEOUT_MS)
-      });
-
-      if (!response.ok) {
-        throw new Error(`Python engine returned status ${response.status}`);
-      }
-
-      const pythonRes = await response.json();
-      const mappedReport = mapPythonResponseToGeminiSchema(pythonRes, input.image.view);
-
-      return {
-        modelUsed: 'python',
-        text: JSON.stringify(mappedReport)
+    if (isHuggingFace) {
+      // Use Hugging Face Gradio JSON API endpoint
+      const url = `${cleanEngineUrl}/api/predict`;
+      const base64Image = `data:${input.image.mimetype};base64,${input.image.buffer.toString('base64')}`;
+      
+      const payload = {
+        data: [
+          base64Image,
+          input.category,
+          input.returnReason || 'P2P Sale',
+          input.customerNotes || 'Listing Verification'
+        ]
       };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new ModelUnavailableError(`Python AI engine is unreachable or returned an error.`, { cause: msg });
+
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(config.MODEL_TIMEOUT_MS)
+        });
+
+        if (!response.ok) {
+          throw new Error(`Gradio engine returned status ${response.status}`);
+        }
+
+        const jsonRes = await response.json() as any;
+        if (!jsonRes || !jsonRes.data || !Array.isArray(jsonRes.data) || jsonRes.data.length === 0) {
+          throw new Error('Gradio engine returned empty or invalid data array');
+        }
+
+        const pythonRes = jsonRes.data[0];
+        const mappedReport = mapPythonResponseToGeminiSchema(pythonRes, input.image.view);
+
+        return {
+          modelUsed: 'python',
+          text: JSON.stringify(mappedReport)
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new ModelUnavailableError(`Gradio AI engine is unreachable or returned an error.`, { cause: msg });
+      }
+    } else {
+      // Fallback to standard FastAPI multipart endpoint for local execution
+      const url = `${cleanEngineUrl}/api/v1/evaluate/disposition`;
+      const formData = new FormData();
+      formData.append('source', 'sell');
+      formData.append('claimed_category', input.category);
+      formData.append('gatekeeper_answers', JSON.stringify({})); // Empty survey fallback
+
+      formData.append(
+        'image',
+        new Blob([input.image.buffer], { type: input.image.mimetype }),
+        `image_${input.image.view}.jpg`
+      );
+
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          body: formData,
+          signal: AbortSignal.timeout(config.MODEL_TIMEOUT_MS)
+        });
+
+        if (!response.ok) {
+          throw new Error(`Python engine returned status ${response.status}`);
+        }
+
+        const pythonRes = await response.json();
+        const mappedReport = mapPythonResponseToGeminiSchema(pythonRes, input.image.view);
+
+        return {
+          modelUsed: 'python',
+          text: JSON.stringify(mappedReport)
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new ModelUnavailableError(`Python AI engine is unreachable or returned an error.`, { cause: msg });
+      }
     }
   }
 }

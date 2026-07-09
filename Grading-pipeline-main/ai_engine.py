@@ -5,6 +5,23 @@ from ultralytics import YOLO
 from typing import Dict, List, Any, Optional
 from routing import normalize_category
 
+# Try loading Hugging Face ZeroGPU spaces library.
+# We mock the 'spaces' module if it's missing (e.g. locally or on CPU)
+# so we can use the literal @spaces.GPU decorator to pass Hugging Face's regex startup check.
+try:
+    import spaces
+    print("ZeroGPU environment detected, using @spaces.GPU wrapper.")
+except ImportError:
+    import sys
+    from types import ModuleType
+    mock_spaces = ModuleType('spaces')
+    def mock_gpu(func):
+        return func
+    mock_spaces.GPU = mock_gpu
+    sys.modules['spaces'] = mock_spaces
+    import spaces
+    print("Standard environment detected, mocked 'spaces' for compatibility.")
+
 # Global Model References
 moondream_model = None
 moondream_tokenizer = None
@@ -23,95 +40,152 @@ DETECTION_MAP = {
     "Books":       ["book", "novel", "textbook"]
 }
 
+def get_inference_device():
+    # If spaces is loaded and running on Hugging Face ZeroGPU, we use cuda.
+    # Otherwise, detect local GPU/MPS.
+    try:
+        import spaces
+        return "cuda"
+    except ImportError:
+        if torch.backends.mps.is_available():
+            return "mps"
+        elif torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+
 def initialize_models():
     """
-    Sequentially loads YOLO11 and Moondream2 models into memory,
-    selecting the best hardware accelerator.
+    Sequentially loads YOLO11 and Moondream2 models into memory on CPU
+    to prevent ZeroGPU startup allocation crashes.
     """
     global moondream_model, moondream_tokenizer, yolo_model, device
+    device = "cpu" # Always start on CPU to prevent ZeroGPU startup allocation crash
 
-    # Determine hardware acceleration
-    if torch.backends.mps.is_available():
-        device = "mps"
-    elif torch.cuda.is_available():
-        device = "cuda"
-    else:
-        device = "cpu"
-
-    print(f"--- INITIALIZING MODELS ON ACCELERATOR: {device} ---")
+    print("--- INITIALIZING MODELS ON CPU ---")
 
     # 1. Load custom YOLO11 Model
     print("Loading YOLO11 structural inspection model...")
     yolo_model = YOLO("runs/detect/returniverse_engine/production_run_v1-4/weights/best.pt")
-    yolo_model.to(device)
+    yolo_model.to("cpu")
     print("YOLO11 structural model successfully loaded.")
 
     # 2. Load Moondream2 with Compatibility Patches
     print("Loading Moondream2 VLM engine...")
     import os
     import types
+    import sys
 
-    def custom_query(self):
-        # We define query as a method that returns the custom query dict
-        # to ensure compatibility.
-        pass
+    # Always use our local architecture source (moondream_src) to avoid
+    # downloading remote architecture code that may be incompatible with the
+    # installed transformers version.
+    src_dir = os.path.dirname(os.path.abspath(__file__))
+    moondream_src_path = os.path.join(src_dir, "moondream_src")
+    if moondream_src_path not in sys.path:
+        sys.path.insert(0, src_dir)
+
+    from moondream_src.moondream import Moondream
+    from moondream_src.configuration_moondream import MoondreamConfig, PhiConfig
+    import moondream_src.modeling_phi as _modeling_phi
+    from transformers.generation import GenerationMixin
+
+    # Patch GenerationMixin into PhiForCausalLM for transformers >= 4.50 compat
+    if GenerationMixin not in _modeling_phi.PhiForCausalLM.__bases__:
+        _modeling_phi.PhiForCausalLM.__bases__ = (
+            _modeling_phi.PhiPreTrainedModel,
+            GenerationMixin,
+        )
+        print("Patched PhiForCausalLM with GenerationMixin.")
 
     def custom_query_impl(self, image, question):
         enc_image = self.encode_image(image)
         ans = self.answer_question(enc_image, question, self.tokenizer)
         return {"answer": ans}
 
-    if os.path.exists("./local_moondream") or os.path.exists("local_moondream"):
-        import local_moondream.modeling_phi as modeling_phi
-        from transformers.generation import GenerationMixin
+    # ── Determine where to load weights from ──────────────────────────────────
+    local_weights = None
+    for candidate in ("./local_moondream", "local_moondream"):
+        if os.path.exists(os.path.join(candidate, "model.safetensors")):
+            local_weights = candidate
+            break
 
-        if GenerationMixin not in modeling_phi.PhiForCausalLM.__bases__:
-            modeling_phi.PhiForCausalLM.__bases__ = (modeling_phi.PhiPreTrainedModel, GenerationMixin)
-            print("Patched PhiForCausalLM with GenerationMixin compatibility.")
-
-        from local_moondream.moondream import Moondream
-        from local_moondream.configuration_moondream import MoondreamConfig
-        
-        local_path = "./local_moondream" if os.path.exists("./local_moondream") else "local_moondream"
-        config = MoondreamConfig.from_pretrained(local_path)
+    if local_weights:
+        print(f"Loading Moondream2 weights from local path: {local_weights}")
+        # Build a clean PhiConfig with pad_token_id pre-set
+        phi_cfg = PhiConfig(pad_token_id=2)
+        config = MoondreamConfig(text_config=phi_cfg.to_dict())
+        config.pad_token_id = 2
 
         moondream_model = Moondream.from_pretrained(
-            local_path,
+            local_weights,
             config=config,
-            trust_remote_code=True
         )
-        moondream_tokenizer = AutoTokenizer.from_pretrained(local_path)
-        moondream_model.tokenizer = moondream_tokenizer
-        Moondream.query = custom_query_impl
     else:
-        print("Local moondream directory not found. Loading from Hugging Face Hub (vikhyatk/moondream2)...")
-        from transformers import AutoModelForCausalLM
-        moondream_model = AutoModelForCausalLM.from_pretrained(
-            "vikhyatk/moondream2",
-            revision="2024-08-26",
-            trust_remote_code=True
-        )
-        moondream_tokenizer = AutoTokenizer.from_pretrained("vikhyatk/moondream2", revision="2024-08-26")
-        moondream_model.tokenizer = moondream_tokenizer
-        moondream_model.query = types.MethodType(custom_query_impl, moondream_model)
+        print("Loading Moondream2 weights from Hugging Face Hub (vikhyatk/moondream2)...")
+        # Download weights only — do NOT use trust_remote_code (avoids broken remote arch)
+        from huggingface_hub import snapshot_download
 
-    moondream_model = moondream_model.to(device)
-    print("Moondream2 VLM engine successfully loaded.")
-    print("Sequential model loading completed successfully.")
+        weights_dir = snapshot_download(
+            repo_id="vikhyatk/moondream2",
+            revision="2024-08-26",
+            ignore_patterns=["*.gguf", "*.md", "*.py", "*.json"],  # weights only
+            local_dir="/tmp/moondream2_weights",
+        )
+        # Also grab the tokenizer files we need
+        from huggingface_hub import hf_hub_download
+        import shutil
+
+        tokenizer_files = [
+            "tokenizer.json", "tokenizer_config.json", "vocab.json",
+            "merges.txt", "special_tokens_map.json", "added_tokens.json",
+            "generation_config.json",
+        ]
+        for fname in tokenizer_files:
+            try:
+                src = hf_hub_download(
+                    repo_id="vikhyatk/moondream2",
+                    filename=fname,
+                    revision="2024-08-26",
+                )
+                shutil.copy(src, os.path.join(weights_dir, fname))
+            except Exception:
+                pass
+
+        # Build a clean config with pad_token_id pre-set
+        phi_cfg = PhiConfig(pad_token_id=2)
+        config = MoondreamConfig(text_config=phi_cfg.to_dict())
+        config.pad_token_id = 2
+
+        moondream_model = Moondream.from_pretrained(
+            weights_dir,
+            config=config,
+        )
+
+    moondream_tokenizer = AutoTokenizer.from_pretrained(
+        local_weights if local_weights else "/tmp/moondream2_weights"
+    )
+    moondream_model.tokenizer = moondream_tokenizer
+    Moondream.query = custom_query_impl
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MODULE 1 HELPER — Category Verification (open-ended prompt + keyword match)
 # ─────────────────────────────────────────────────────────────────────────────
 
+@spaces.GPU
 def verify_category_match(image: Image.Image, claimed_category: str) -> dict:
     """
     Uses Moondream2 to verify the image matches the claimed category.
     AI ROLE: Feature Extraction only — asks open-ended "What object is shown?"
     Matching against category aliases is done in pure Python (DETECTION_MAP).
     """
+    global moondream_model
     if moondream_model is None:
         raise RuntimeError("Moondream model is not initialized.")
+
+    # Dynamically move model to active inference device inside the GPU-worker boundary
+    target_device = get_inference_device()
+    moondream_model = moondream_model.to(target_device)
 
     norm_claimed = normalize_category(claimed_category)
 
@@ -121,6 +195,13 @@ def verify_category_match(image: Image.Image, claimed_category: str) -> dict:
     detected_raw = moondream_model.answer_question(
         enc_image, identify_prompt, moondream_tokenizer, max_new_tokens=20
     ).strip().lower()
+
+    # Move back to CPU if we are in ZeroGPU to release resource locks
+    try:
+        import spaces
+        moondream_model = moondream_model.to("cpu")
+    except ImportError:
+        pass
 
     # Keyword matching in Python — NOT in the AI model
     keywords = DETECTION_MAP.get(norm_claimed, [norm_claimed.lower()])
@@ -153,6 +234,7 @@ def crop_box_with_padding(image: Image.Image, box: List[float], padding_pct: flo
     
     return image.crop((new_x1, new_y1, new_x2, new_y2))
 
+@spaces.GPU
 def extract_structural_features(image: Image.Image) -> Dict[str, Any]:
     """
     YOLO11 processes the image and returns raw defect counts.
@@ -164,10 +246,17 @@ def extract_structural_features(image: Image.Image) -> Dict[str, Any]:
     and ask Moondream VLM to verify if the defect is actually present.
     If the VLM rejects it, we discard the detection.
     """
+    global yolo_model, moondream_model
     if yolo_model is None:
         raise RuntimeError("YOLO model is not initialized.")
 
-    results = yolo_model(image, device=device)
+    # Dynamically select device and move models inside GPU worker
+    target_device = get_inference_device()
+    yolo_model = yolo_model.to(target_device)
+    if moondream_model is not None:
+        moondream_model = moondream_model.to(target_device)
+
+    results = yolo_model(image, device=target_device)
 
     # Initialize all known classes to zero count
     defect_counts: Dict[str, int] = {
@@ -222,6 +311,15 @@ def extract_structural_features(image: Image.Image) -> Dict[str, Any]:
                 "verified_by_vlm": verified_by_vlm
             })
 
+    # Move models back to CPU to release GPU resource lock
+    try:
+        import spaces
+        yolo_model = yolo_model.to("cpu")
+        if moondream_model is not None:
+            moondream_model = moondream_model.to("cpu")
+    except ImportError:
+        pass
+
     return {
         "defect_counts": defect_counts,   # e.g. {"crack": 1, "dent": 0, ...}
         "raw_detections": raw_detections  # full bounding box data for response
@@ -232,14 +330,20 @@ def extract_structural_features(image: Image.Image) -> Dict[str, Any]:
 # MODULE 3b — Semantic Engine (Moondream2) — Boolean Flag Extraction ONLY
 # ─────────────────────────────────────────────────────────────────────────────
 
+@spaces.GPU
 def extract_semantic_features(image: Image.Image, category: str) -> Dict[str, bool]:
     """
     Moondream2 is queried with category-specific factual questions.
     AI ROLE: Observation only — returns strict boolean flags.
     NO grades, NO downgrading, NO decisions. All rules live in routing.py.
     """
+    global moondream_model
     if moondream_model is None:
         raise RuntimeError("Moondream model is not initialized.")
+
+    # Dynamically select device and move model inside GPU worker
+    target_device = get_inference_device()
+    moondream_model = moondream_model.to(target_device)
 
     norm_cat = normalize_category(category)
     flags: Dict[str, bool] = {}
@@ -281,5 +385,12 @@ def extract_semantic_features(image: Image.Image, category: str) -> Dict[str, bo
         flags["appears_heavily_damaged"] = ask_yes_no(
             "Does the item appear to be heavily damaged or in poor condition? Answer yes or no."
         )
+
+    # Move model back to CPU to release GPU resource lock
+    try:
+        import spaces
+        moondream_model = moondream_model.to("cpu")
+    except ImportError:
+        pass
 
     return flags
