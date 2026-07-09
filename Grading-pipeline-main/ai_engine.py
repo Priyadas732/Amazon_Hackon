@@ -99,6 +99,9 @@ def initialize_models():
         config = MoondreamConfig.from_pretrained(local_path)
         if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
             config.pad_token_id = config.eos_token_id
+        if hasattr(config, "text_config"):
+            if not hasattr(config.text_config, "pad_token_id") or config.text_config.pad_token_id is None:
+                config.text_config.pad_token_id = config.eos_token_id
 
         moondream_model = Moondream.from_pretrained(
             local_path,
@@ -120,6 +123,9 @@ def initialize_models():
         )
         if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
             config.pad_token_id = getattr(config, "eos_token_id", 50256)
+        if hasattr(config, "text_config"):
+            if not hasattr(config.text_config, "pad_token_id") or config.text_config.pad_token_id is None:
+                config.text_config.pad_token_id = getattr(config, "eos_token_id", 50256)
 
         moondream_model = AutoModelForCausalLM.from_pretrained(
             "vikhyatk/moondream2",
