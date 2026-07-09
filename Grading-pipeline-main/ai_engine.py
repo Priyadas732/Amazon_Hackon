@@ -102,6 +102,21 @@ def initialize_models():
         if hasattr(config, "text_config"):
             if not hasattr(config.text_config, "pad_token_id") or config.text_config.pad_token_id is None:
                 config.text_config.pad_token_id = config.eos_token_id
+            if hasattr(config.text_config, "rope_scaling") and config.text_config.rope_scaling is not None:
+                # Force rope_scaling to dict format containing 'type' to prevent KeyError
+                if not isinstance(config.text_config.rope_scaling, dict):
+                    r_scaling = config.text_config.rope_scaling
+                    rope_type = getattr(r_scaling, "rope_type", getattr(r_scaling, "type", "linear"))
+                    rope_factor = getattr(r_scaling, "factor", 2.0)
+                    config.text_config.rope_scaling = {
+                        "type": rope_type,
+                        "rope_type": rope_type,
+                        "factor": rope_factor
+                    }
+                else:
+                    rope_type = config.text_config.rope_scaling.get("rope_type") or config.text_config.rope_scaling.get("type", "linear")
+                    config.text_config.rope_scaling["type"] = rope_type
+                    config.text_config.rope_scaling["rope_type"] = rope_type
 
         moondream_model = Moondream.from_pretrained(
             local_path,
@@ -126,6 +141,21 @@ def initialize_models():
         if hasattr(config, "text_config"):
             if not hasattr(config.text_config, "pad_token_id") or config.text_config.pad_token_id is None:
                 config.text_config.pad_token_id = getattr(config, "eos_token_id", 50256)
+            if hasattr(config.text_config, "rope_scaling") and config.text_config.rope_scaling is not None:
+                # Force rope_scaling to dict format containing 'type' to prevent KeyError
+                if not isinstance(config.text_config.rope_scaling, dict):
+                    r_scaling = config.text_config.rope_scaling
+                    rope_type = getattr(r_scaling, "rope_type", getattr(r_scaling, "type", "linear"))
+                    rope_factor = getattr(r_scaling, "factor", 2.0)
+                    config.text_config.rope_scaling = {
+                        "type": rope_type,
+                        "rope_type": rope_type,
+                        "factor": rope_factor
+                    }
+                else:
+                    rope_type = config.text_config.rope_scaling.get("rope_type") or config.text_config.rope_scaling.get("type", "linear")
+                    config.text_config.rope_scaling["type"] = rope_type
+                    config.text_config.rope_scaling["rope_type"] = rope_type
 
         moondream_model = AutoModelForCausalLM.from_pretrained(
             "vikhyatk/moondream2",
