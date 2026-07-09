@@ -28,6 +28,7 @@ class PhiConfig(PretrainedConfig):
         qk_layernorm=False,
         bos_token_id=1,
         eos_token_id=2,
+        pad_token_id=2,  # Always set pad_token_id to prevent AttributeError on newer transformers
         **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -49,44 +50,49 @@ class PhiConfig(PretrainedConfig):
         self.layer_norm_eps = layer_norm_eps
         self.use_cache = use_cache
         self.rope_theta = rope_theta
-        self.rope_scaling = rope_scaling
+        # Normalize rope_scaling: treat "default" rope_type as None (no scaling)
+        self.rope_scaling = self._normalize_rope_scaling(rope_scaling)
         self.partial_rotary_factor = partial_rotary_factor
         self.qk_layernorm = qk_layernorm
-        self._rope_scaling_validation()
 
         super().__init__(
             bos_token_id=bos_token_id,
             eos_token_id=eos_token_id,
+            pad_token_id=pad_token_id,
             tie_word_embeddings=tie_word_embeddings,
             **kwargs,
         )
 
-    # Copied from transformers.models.llama.configuration_llama.LlamaConfig._rope_scaling_validation
+    @staticmethod
+    def _normalize_rope_scaling(rope_scaling):
+        """Convert rope_scaling to None if it represents standard (no-scaling) RoPE.
+        Newer transformers versions inject {"rope_type": "default"} instead of None.
+        """
+        if rope_scaling is None:
+            return None
+        if isinstance(rope_scaling, dict):
+            rope_type = rope_scaling.get("rope_type") or rope_scaling.get("type", "default")
+            if rope_type in ("default", "", None):
+                return None  # Treat as standard RoPE — no scaling
+        return rope_scaling
+
     def _rope_scaling_validation(self):
-        """
-        Validate the `rope_scaling` configuration.
-        """
+        """Validate rope_scaling — relaxed to accept new transformers formats."""
         if self.rope_scaling is None:
             return
-
-        if not isinstance(self.rope_scaling, dict) or len(self.rope_scaling) != 2:
+        if not isinstance(self.rope_scaling, dict):
+            raise ValueError(f"`rope_scaling` must be a dict, got {type(self.rope_scaling)}")
+        rope_type = self.rope_scaling.get("type") or self.rope_scaling.get("rope_type", "default")
+        if rope_type in ("default", "", None):
+            return  # Valid: will be treated as standard RoPE
+        if rope_type not in ["linear", "dynamic"]:
             raise ValueError(
-                "`rope_scaling` must be a dictionary with with two fields, `type` and `factor`, "
-                f"got {self.rope_scaling}"
+                f"`rope_scaling`'s type must be one of ['linear', 'dynamic', 'default'], got {rope_type}"
             )
-        rope_scaling_type = self.rope_scaling.get("type", None)
-        rope_scaling_factor = self.rope_scaling.get("factor", None)
-        if rope_scaling_type is None or rope_scaling_type not in ["linear", "dynamic"]:
+        rope_factor = self.rope_scaling.get("factor", None)
+        if rope_factor is None or not isinstance(rope_factor, float) or rope_factor <= 1.0:
             raise ValueError(
-                f"`rope_scaling`'s type field must be one of ['linear', 'dynamic'], got {rope_scaling_type}"
-            )
-        if (
-            rope_scaling_factor is None
-            or not isinstance(rope_scaling_factor, float)
-            or rope_scaling_factor <= 1.0
-        ):
-            raise ValueError(
-                f"`rope_scaling`'s factor field must be a float > 1, got {rope_scaling_factor}"
+                f"`rope_scaling`'s factor must be a float > 1, got {rope_factor}"
             )
 
 
