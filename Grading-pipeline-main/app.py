@@ -1,26 +1,12 @@
-import gradio as gr
-from main import app as fastapi_app
+import os
+import sys
+import uvicorn
 
-# Force Hugging Face ZeroGPU static scanner to detect GPU usage in the entrypoint
-try:
-    import spaces
-    @spaces.GPU
-    def hf_static_scanner_trigger():
-        pass
-except ImportError:
-    pass
+# Hijack the Streamlit runner to start our FastAPI app directly on the exposed port (7860)
+# This lets us deploy on the 100% FREE Streamlit CPU Basic tier without any ZeroGPU limitations.
+print("Streamlit runner hijacked. Launching FastAPI server directly on port 7860...")
+port = int(os.environ.get("PORT", 7860))
+uvicorn.run("main:app", host="0.0.0.0", port=port)
 
-# Define a simple Gradio blocks landing page for the Space UI
-with gr.Blocks(title="Amazon Returniverse AI Grading Engine") as demo:
-    gr.Markdown("# 🤖 Returniverse & MarketConnect AI Vision Grading Engine")
-    gr.Markdown("The grading APIs are active and mounted on this Hugging Face Space.")
-    
-    with gr.Accordion("Mounted API Endpoints Guide", open=True):
-        gr.Markdown("""
-        - **POST `/grade`**: Submit photos and metadata for quality assessment.
-        - **GET `/status/{requestId}`**: Poll the analysis status.
-        - **GET `/result/{requestId}`**: Retrieve the completed inspection report.
-        """)
-
-# Mount our FastAPI endpoints directly on the Gradio web server
-app = gr.mount_gradio_app(fastapi_app, demo, path="/")
+# Prevent Streamlit from running and causing port conflicts
+sys.exit(0)
