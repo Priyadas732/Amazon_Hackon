@@ -5,15 +5,22 @@ from ultralytics import YOLO
 from typing import Dict, List, Any, Optional
 from routing import normalize_category
 
-# Try loading Hugging Face ZeroGPU spaces library
+# Try loading Hugging Face ZeroGPU spaces library.
+# We mock the 'spaces' module if it's missing (e.g. locally or on CPU)
+# so we can use the literal @spaces.GPU decorator to pass Hugging Face's regex startup check.
 try:
     import spaces
-    gpu_decorator = spaces.GPU
     print("ZeroGPU environment detected, using @spaces.GPU wrapper.")
 except ImportError:
-    def gpu_decorator(func):
+    import sys
+    from types import ModuleType
+    mock_spaces = ModuleType('spaces')
+    def mock_gpu(func):
         return func
-    print("Standard environment detected, using CPU/Local GPU.")
+    mock_spaces.GPU = mock_gpu
+    sys.modules['spaces'] = mock_spaces
+    import spaces
+    print("Standard environment detected, mocked 'spaces' for compatibility.")
 
 # Global Model References
 moondream_model = None
@@ -114,7 +121,7 @@ def initialize_models():
 # MODULE 1 HELPER — Category Verification (open-ended prompt + keyword match)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@gpu_decorator
+@spaces.GPU
 def verify_category_match(image: Image.Image, claimed_category: str) -> dict:
     """
     Uses Moondream2 to verify the image matches the claimed category.
@@ -164,7 +171,7 @@ def crop_box_with_padding(image: Image.Image, box: List[float], padding_pct: flo
     
     return image.crop((new_x1, new_y1, new_x2, new_y2))
 
-@gpu_decorator
+@spaces.GPU
 def extract_structural_features(image: Image.Image) -> Dict[str, Any]:
     """
     YOLO11 processes the image and returns raw defect counts.
@@ -244,7 +251,7 @@ def extract_structural_features(image: Image.Image) -> Dict[str, Any]:
 # MODULE 3b — Semantic Engine (Moondream2) — Boolean Flag Extraction ONLY
 # ─────────────────────────────────────────────────────────────────────────────
 
-@gpu_decorator
+@spaces.GPU
 def extract_semantic_features(image: Image.Image, category: str) -> Dict[str, bool]:
     """
     Moondream2 is queried with category-specific factual questions.
